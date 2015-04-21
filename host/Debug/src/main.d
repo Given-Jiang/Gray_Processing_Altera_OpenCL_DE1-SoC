@@ -1,4 +1,5 @@
-main.d: ../main.cpp E:\SOC_SDK\Quartus\hld\host\include/CL/opencl.h \
+src/main.d: ../src/main.cpp \
+ E:\SOC_SDK\Quartus\hld\host\include/CL/opencl.h \
  E:\SOC_SDK\Quartus\hld\host\include/CL/cl.h \
  E:\SOC_SDK\Quartus\hld\host\include/CL/cl_platform.h \
  E:\SOC_SDK\Quartus\hld\host\include/CL/cl_gl.h \

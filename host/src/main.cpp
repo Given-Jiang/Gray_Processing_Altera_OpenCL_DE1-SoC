@@ -1,34 +1,3 @@
-// Copyright (C) 2013-2014 Altera Corporation, San Jose, California, USA. All rights reserved. 
-// Permission is hereby granted, free of charge, to any person obtaining a copy of this 
-// software and associated documentation files (the "Software"), to deal in the Software 
-// without restriction, including without limitation the rights to use, copy, modify, merge, 
-// publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to 
-// whom the Software is furnished to do so, subject to the following conditions: 
-// The above copyright notice and this permission notice shall be included in all copies or 
-// substantial portions of the Software. 
-//  
-// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, 
-// EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES 
-// OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND 
-// NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT 
-// HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, 
-// WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING 
-// FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR 
-// OTHER DEALINGS IN THE SOFTWARE. 
-//  
-// This agreement shall be governed in all respects by the laws of the State of California and 
-// by the laws of the United States of America. 
-
-///////////////////////////////////////////////////////////////////////////////////
-// This host program runs a "hello world" kernel. This kernel prints out a
-// message for if the work-item index matches a kernel argument.
-//
-// Most of this host program code is the basic elements of a OpenCL host
-// program, handling the initialization and cleanup of OpenCL objects. The
-// host program also makes queries through the OpenCL API to get various
-// properties of the device.
-///////////////////////////////////////////////////////////////////////////////////
-
 #include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -43,17 +12,20 @@
 #include <opencv2/highgui/highgui.hpp>
 #include "opencv2/imgproc/imgproc.hpp"
 
+//时间测量
+#include "time.h"
+#include <sys/time.h>
+
 using namespace std;
 using namespace aocl_utils;
 using namespace cv;
 
-string in_img_name = "in.jpg";
+string in_img_name = "test.jpg";
 unsigned int in_img_rows = NULL;
 unsigned int in_img_cols = NULL;
 unsigned int in_img_channels = NULL;
 Mat in_img;
-Mat out_img(in_img_rows, in_img_cols, CV_8UC3);//must define the arguements when define the Mat
-const unsigned int IN_IMG_SIZE = in_img_rows * in_img_cols * in_img_channels;
+
 
 cl_uint num_platforms;
 cl_platform_id platform;
@@ -68,6 +40,9 @@ cl_mem cl_img_in, cl_img_out;
 string imageFilename;
 string aocxFilename;
 string deviceInfo;
+
+struct timeval tstart,tend;//代码运行时间测量
+unsigned int timeuse;
 
 void teardown(int exit_status = 1);
 
@@ -108,7 +83,7 @@ void img_init(string &str, Mat &img_buf, unsigned int &img_rows, unsigned int &i
 	img_channels = img_buf.channels();
 }
 
-void initCL()
+void initCL(const unsigned int pixels_num)
 {
     cl_int status;
 
@@ -142,34 +117,36 @@ void initCL()
     status = clBuildProgram(program, num_devices, &device, "", NULL, NULL);
     checkError(status, "Error: could not build program");
 
-    kernel = clCreateKernel(program, "Gray_Processing", &status);
+    kernel = clCreateKernel(program, "graying", &status);
     checkError(status, "Error: could not create Gray_Processing kernel");
 
-    cl_img_in = clCreateBuffer(context, CL_MEM_READ_ONLY, IN_IMG_SIZE, NULL, &status);
+    cl_img_in = clCreateBuffer(context, CL_MEM_READ_ONLY, pixels_num, NULL, &status);
     checkError(status, "Error: could not create device buffer");
 
-    cl_img_out = clCreateBuffer(context, CL_MEM_WRITE_ONLY, IN_IMG_SIZE, NULL, &status);
+    cl_img_out = clCreateBuffer(context, CL_MEM_WRITE_ONLY, pixels_num, NULL, &status);
     checkError(status, "Error: could not create output buffer");
 
     status  = clSetKernelArg(kernel, 0, sizeof(cl_mem), &cl_img_in);
     status |= clSetKernelArg(kernel, 1, sizeof(cl_mem), &cl_img_out);
-    status |= clSetKernelArg(kernel, 2, sizeof(unsigned int), &IN_IMG_SIZE);
+    status |= clSetKernelArg(kernel, 2, sizeof(unsigned int), &pixels_num);
     checkError(status, "Error: could not set sobel args");
 }
 
-void Graying()
+void Graying(const unsigned int pixels_num, unsigned int rows, unsigned int cols)
 {
     size_t GrayingSize = 1;
     cl_int status;
 
-    uchar* pixel_in = in_img.data;
-    status = clEnqueueWriteBuffer(queue, cl_img_in, CL_FALSE, 0, IN_IMG_SIZE, &pixel_in, 0, NULL, NULL);
+    Mat img = imread("test.jpg");
+
+    uchar* pixel_in = img.data;
+    status = clEnqueueWriteBuffer(queue, cl_img_in, CL_FALSE, 0, pixels_num, pixel_in, 0, NULL, NULL);
     checkError(status, "Error: could not copy data into device");
 
     status = clFinish(queue);
     checkError(status, "Error: could not finish successfully");
 
-    status = clSetKernelArg(kernel, 3, sizeof(unsigned int), &IN_IMG_SIZE);
+    status = clSetKernelArg(kernel, 2, sizeof(unsigned int), &pixels_num);
     checkError(status, "Error: could not set sobel threshold");
 
     cl_event event;
@@ -178,28 +155,47 @@ void Graying()
 
     status  = clFinish(queue);
     checkError(status, "Error: could not finish successfully");
-
+/*
     cl_ulong start, end;
     status  = clGetEventProfilingInfo(event, CL_PROFILING_COMMAND_START, sizeof(cl_ulong), &start, NULL);
     status |= clGetEventProfilingInfo(event, CL_PROFILING_COMMAND_END, sizeof(cl_ulong), &end, NULL);
     checkError(status, "Error: could not get profile information");
     clReleaseEvent(event);
-
+*/
+    Mat out_img(rows, cols, CV_8UC3);//must define the arguements when define the Mat
 	uchar* pixel_out = out_img.data;
-    status = clEnqueueReadBuffer(queue, cl_img_out, CL_FALSE, 0, IN_IMG_SIZE, &pixel_out, 0, NULL, NULL);
+    status = clEnqueueReadBuffer(queue, cl_img_out, CL_FALSE, 0, pixels_num, pixel_out, 0, NULL, NULL);
     checkError(status, "Error: could not copy data from device");
 
     status = clFinish(queue);
     checkError(status, "Error: could not successfully finish copy");
+
+    imwrite("test_out.jpg", out_img);
 }
 
 int main(int argc, char **argv)
 {
 	img_init(in_img_name, in_img, in_img_rows, in_img_cols, in_img_channels);
 
-    initCL();
+	const unsigned int IN_IMG_SIZE =  in_img_rows * in_img_cols * in_img_channels;
 
-    Graying();
+	gettimeofday(&tstart, NULL);//测量代码时间开始
+
+    initCL(IN_IMG_SIZE);
+
+    Graying(IN_IMG_SIZE, in_img_rows, in_img_cols);
+
+    gettimeofday(&tend, NULL);//结束测量
+    timeuse = (unsigned int) (1000000*(tend.tv_sec-tstart.tv_sec)+(tend.tv_usec-tstart.tv_usec)); //换算为微秒
+
+    cout << "OpenCL Used Time = " << timeuse << "uS" << endl;
+
+    gettimeofday(&tstart, NULL);//测量代码时间开始
+	//opencv comparison
+	cvtColor(in_img, in_img, CV_BGR2GRAY);
+	gettimeofday(&tend, NULL);//结束测量
+	timeuse = (unsigned int) (1000000*(tend.tv_sec-tstart.tv_sec)+(tend.tv_usec-tstart.tv_usec)); //换算为微秒
+	cout << "OpenCV Used Time = " << timeuse << "uS" << endl;
 
     teardown(0);
 }
